@@ -7,6 +7,7 @@ use std::collections::{HashMap, VecDeque};
 
 use crate::analyze::core::AnalysisError;
 use crate::analyze::lir::Lir;
+use crate::analyze::LirKind;
 
 use super::RExpr;
 
@@ -41,12 +42,32 @@ impl<'tcx> Env<'tcx> {
         self.path.push_back(Lir::new_assert(constraint, expr));
     }
 
-    pub fn get_smt_command(&self) -> Result<String, AnalysisError> {
+    pub fn get_smt_commands(&self) -> Result<String, AnalysisError> {
         let smt_str = self
             .path
             .iter()
             .map(|smt_command| smt_command.to_smt().unwrap())
             .collect::<Vec<String>>();
         Ok(smt_str.join("\n"))
+    }
+
+    pub fn get_smt_command(&self, idx: usize) -> Result<String, AnalysisError> {
+        self.path
+            .get(idx)
+            .ok_or(AnalysisError::OutOfBounds(idx))
+            .and_then(|smt_command| Ok(smt_command.to_smt()?))
+    }
+
+    //TODO: fix 仮で書いている
+    pub fn get_smt_command_for_assume(&self) -> Result<String, AnalysisError> {
+        let len = self.path.len();
+        let mut command = String::new();
+        for i in 0..(len - 1) {
+            if let LirKind::Assume(_) = self.path[i].kind {
+                command.push_str(&self.path[i].to_smt()?);
+            }
+        }
+        command.push_str(&self.path[len - 1].to_assert()?);
+        Ok(command)
     }
 }

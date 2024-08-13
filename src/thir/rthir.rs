@@ -106,7 +106,7 @@ pub enum RExprKind<'tcx> {
     Call {
         ty: Ty<'tcx>,
         fun: Rc<RExpr<'tcx>>,
-        args: Vec<Rc<RExpr<'tcx>>>,
+        args: Box<[Rc<RExpr<'tcx>>]>,
         from_hir_call: bool,
         fn_span: Span,
     },

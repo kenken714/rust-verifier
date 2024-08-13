@@ -12,6 +12,7 @@ use std::iter::Peekable;
 use std::rc::Rc;
 
 use crate::thir::rthir::*;
+mod annotate;
 pub mod core;
 mod env;
 mod expr;
@@ -44,7 +45,7 @@ impl<'tcx> Analyzer<'tcx> {
         tcx: TyCtxt<'tcx>,
     ) -> Result<(), AnalysisError> {
         let analyzer = Analyzer::new(fn_map, tcx);
-        let main = analyzer.fn_map(main_id)?;
+        let main = analyzer.get_fn(main_id)?;
         analyzer.analyze_enter(main)
     }
 

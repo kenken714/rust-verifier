@@ -1,3 +1,5 @@
+use rustc_span::Span;
+
 use crate::analyze::*;
 use crate::thir::rthir::RThir;
 
@@ -10,7 +12,7 @@ impl<'tcx> Analyzer<'tcx> {
         Ok(())
     }
 
-    fn analyze_body(
+    pub fn analyze_body(
         &self,
         body: Rc<RExpr<'tcx>>,
         env: &mut Env<'tcx>,
@@ -43,13 +45,16 @@ impl<'tcx> Analyzer<'tcx> {
         env: &mut Env<'tcx>,
     ) -> Result<AnalysisType<'tcx>, AnalysisError> {
         use RExprKind::*;
-        let res = AnalysisType::Other;
+        let mut res = AnalysisType::Other;
         match expr.kind.clone() {
             Literal { .. } => {
-                self.analyze_literal(expr, env);
+                self.analyze_literal(expr, env)?;
             }
             Binary { .. } => {
-                self.analyze_binary(expr, env);
+                self.analyze_binary(expr, env)?;
+            }
+            Call { ty, args, .. } => {
+                res = self.analyze_fn(ty, args, expr, env)?;
             }
             _ => {
                 return Err(AnalysisError::Unsupported(
@@ -72,4 +77,7 @@ pub enum AnalysisType<'tcx> {
 pub enum AnalysisError {
     Unsupported(String),
     Unimplemented(String),
+    FunctionNotFound(LocalDefId),
+    VerificationFailed, // { span: Span },
+    OutOfBounds(usize),
 }

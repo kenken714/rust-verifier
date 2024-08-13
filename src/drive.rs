@@ -35,6 +35,15 @@ pub fn drive_rust_verifier(tcx: TyCtxt, opts: &Options) -> Result<()> {
                 Unimplemented(message) => {
                     println!("Unimplemented: {}", message);
                 }
+                FunctionNotFound(id) => {
+                    println!("Function not found: {:?}", id);
+                }
+                VerificationFailed => {
+                    println!("Verification failed");
+                }
+                OutOfBounds(idx) => {
+                    println!("Out of bounds: {}", idx);
+                }
             }
         }
     } else {

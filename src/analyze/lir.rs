@@ -9,7 +9,6 @@ pub enum LirKind<'tcx> {
     Declaration { name: String, ty: Ty<'tcx> },
     Assume(String),
     Assert(String),
-    Assumption(String),
 }
 pub struct Lir<'tcx> {
     pub kind: LirKind<'tcx>,
@@ -37,22 +36,34 @@ impl<'tcx> Lir<'tcx> {
     pub fn new_assume(constraint: String, expr: Rc<RExpr<'tcx>>) -> Lir<'tcx> {
         Lir::new(LirKind::Assume(constraint), expr)
     }
-    pub fn new_assumption(constraint: String, expr: Rc<RExpr<'tcx>>) -> Lir<'tcx> {
-        Lir::new(LirKind::Assumption(constraint), expr)
-    }
 
-    pub fn to_smt(&self) -> Result<String, ()> {
+    pub fn to_smt(&self) -> Result<String, AnalysisError> {
         use LirKind::*;
 
         match &self.kind {
             Declaration { name, ty } => match ty.kind() {
                 TyKind::Bool => Ok(format!("(declare-const {} Bool\n", name)),
                 TyKind::Int(_) => Ok(format!("(declare-const {} Int\n", name)),
-                _ => Err(()),
+                _ => Err(AnalysisError::Unsupported(
+                    "Only Int and Bool types are supported".to_string(),
+                )),
             },
             Assert(constraint) => Ok(format!("(assert (not {}))", constraint)),
             Assume(constraint) => Ok(format!("(assert ({}))", constraint)),
-            _ => Err(()),
+            _ => Err(AnalysisError::Unsupported(
+                "Unsupported annotation kind".to_string(),
+            )),
+        }
+    }
+
+    pub fn to_assert(&self) -> Result<String, AnalysisError> {
+        use LirKind::*;
+        match &self.kind {
+            Assert(constraint) => Ok(format!("(assert (not {}))", constraint)),
+            Assume(constraint) => Ok(format!("(assert (not {}))", constraint)),
+            _ => Err(AnalysisError::Unsupported(
+                "Unsupported annotation kind".to_string(),
+            )),
         }
     }
 }
