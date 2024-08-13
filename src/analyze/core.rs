@@ -1,15 +1,20 @@
 use crate::analyze::*;
+use crate::thir::rthir::RThir;
 
 impl<'tcx> Analyzer<'tcx> {
-    pub fn analyze(&self, rthir: Rc<Rthir<'tcx>>) -> Result<(), AnalysisError> {
+    pub fn analyze_enter(&self, rthir: Rc<RThir<'tcx>>) -> Result<(), AnalysisError> {
         if let Some(body) = &rthir.body {
-            let main_env = Env::new();
-            self.analyze_body((*body).clone(), main_env)?
+            let mut main_env = Env::new();
+            self.analyze_body((*body).clone(), &mut main_env)?
         }
         Ok(())
     }
 
-    fn analyze_body(&self, body: Rc<RExpr<'tcx>>, env: Env<'tcx>) -> Result<(), AnalysisError> {
+    fn analyze_body(
+        &self,
+        body: Rc<RExpr<'tcx>>,
+        env: &mut Env<'tcx>,
+    ) -> Result<(), AnalysisError> {
         if let RExprKind::Block { stmts, expr } = &body.kind {
             let mut stmts = stmts.clone().into_iter().peekable();
             while let Some(stmt) = stmts.next() {
@@ -18,16 +23,18 @@ impl<'tcx> Analyzer<'tcx> {
                     AnalysisType::Invariant(expr) => {
                         self.analyze_expr(expr.clone(), env)?; //loop is currently not supported
                     }
-                    AnalysisType::Break => Break,
+                    AnalysisType::Break => break,
                     AnalysisType::Other => (),
                 }
             }
             if let Some(expr) = expr {
                 self.analyze_expr(expr.clone(), env)?;
             }
-            Ok(())
+            return Ok(());
         }
-        Unsupported("Only block expressions are supported".to_string())
+        Err(AnalysisError::Unsupported(
+            "Only block expressions are supported".to_string(),
+        ))
     }
 
     fn analyze_expr(
@@ -36,15 +43,13 @@ impl<'tcx> Analyzer<'tcx> {
         env: &mut Env<'tcx>,
     ) -> Result<AnalysisType<'tcx>, AnalysisError> {
         use RExprKind::*;
-        let mut res = AnalysisType::Other;
-        match expr.kind.clone {
-            Literal { expr } => {
+        let res = AnalysisType::Other;
+        match expr.kind.clone() {
+            Literal { .. } => {
                 self.analyze_literal(expr, env);
             }
-            Binary { op, lhs, rhs } => {
-                let lhs = self.analyze_expr(lhs.clone(), env);
-                let rhs = self.analyze_expr(rhs.clone(), env);
-                self.op_to_const(op, lhs, rhs);
+            Binary { .. } => {
+                self.analyze_binary(expr, env);
             }
             _ => {
                 return Err(AnalysisError::Unsupported(
@@ -56,11 +61,14 @@ impl<'tcx> Analyzer<'tcx> {
     }
 }
 
-pub enum AnalysisType {
+#[derive(Debug)]
+pub enum AnalysisType<'tcx> {
     Invariant(Rc<RExpr<'tcx>>),
     Break,
     Other,
 }
+
+#[derive(Debug)]
 pub enum AnalysisError {
     Unsupported(String),
     Unimplemented(String),

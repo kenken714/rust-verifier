@@ -1,5 +1,4 @@
 fn main() {
-    let a = 1;
-    let b = 2;
-    println!("a + b = {}", a + b);
+    assume(1 <= 2);
+    assert(3 <= 7);
 }

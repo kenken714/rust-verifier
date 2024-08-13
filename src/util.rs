@@ -4,7 +4,7 @@ use rustc_span::def_id::LocalDefId;
 use std::collections::HashMap as Map;
 use std::rc::Rc;
 
-use crate::rthir::RThir;
+use crate::thir::rthir::RThir;
 
 pub fn get_fn_id_map<'tcx>(tcx: &TyCtxt<'tcx>) -> Map<LocalDefId, Rc<RThir<'tcx>>> {
     let mut fn_map: Map<LocalDefId, Rc<RThir<'tcx>>> = Map::new();

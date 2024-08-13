@@ -5,7 +5,7 @@ use rustc_middle::middle::region;
 use rustc_middle::mir::{BinOp, BorrowKind, UnOp};
 use rustc_middle::thir::*;
 use rustc_middle::ty::adjustment::PointerCoercion;
-use rustc_middle::ty::{self, CanonicalUserType, GenericArgsRef, Ty};
+use rustc_middle::ty::{self, CanonicalUserType, GenericArgsRef, Mutability, Ty};
 use rustc_span::{Span, Symbol};
 use rustc_target::abi::{FieldIdx, VariantIdx};
 
@@ -219,6 +219,7 @@ pub enum RExprKind<'tcx> {
     },
     NonHirLiteral {
         lit: ty::ScalarInt,
+        user_ty: UserTy<'tcx>,
     },
     ZstLiteral {
         user_ty: UserTy<'tcx>,
@@ -230,11 +231,11 @@ pub enum RExprKind<'tcx> {
     },
     ConstParam {
         param: ty::ParamConst,
-        def_id: DefId
+        def_id: DefId,
     },
     LetStmt {
         pattern: Rc<RExpr<'tcx>>,
-        init: Option<Rc<RExpr<'tcx>>>
-        body: Rc<RExpr<'tcx>>
+        init: Option<Rc<RExpr<'tcx>>>,
+        body: Option<Rc<RExpr<'tcx>>>,
     },
 }

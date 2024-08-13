@@ -1,9 +1,14 @@
-use ructc_middle::thir::LocalVarId;
-use ructc_middle::ty::Ty;
+use rustc_middle::thir::LocalVarId;
+use rustc_middle::ty::Ty;
 use rustc_span::Span;
 use std::rc::Rc;
 
 use std::collections::{HashMap, VecDeque};
+
+use crate::analyze::core::AnalysisError;
+use crate::analyze::lir::Lir;
+
+use super::RExpr;
 
 pub struct Env<'tcx> {
     pub name: String,
@@ -32,17 +37,16 @@ impl<'tcx> Env<'tcx> {
         }
     }
 
-    pub fn add_smt_command(&mut self, lir: Lir<'tcx>) {
-        self.path.push_back(Lir::new_assume(constraint, expr));
+    pub fn add_smt_command(&mut self, constraint: String, expr: Rc<RExpr<'tcx>>) {
+        self.path.push_back(Lir::new_assert(constraint, expr));
     }
 
     pub fn get_smt_command(&self) -> Result<String, AnalysisError> {
         let smt_str = self
             .path
             .iter()
-            .map(|smt_command| smt_command.to_smt())
-            .collect::<Vec<String>>()
-            .join("\n");
-        Ok(smt_str)
+            .map(|smt_command| smt_command.to_smt().unwrap())
+            .collect::<Vec<String>>();
+        Ok(smt_str.join("\n"))
     }
 }

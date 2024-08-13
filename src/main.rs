@@ -3,6 +3,7 @@
 #![feature(pattern)]
 
 // Extern rustc crates
+extern crate rustc_ast;
 extern crate rustc_data_structures;
 extern crate rustc_driver;
 extern crate rustc_errors;
@@ -20,7 +21,8 @@ extern crate rustc_target;
 mod run;
 mod analyze;
 mod drive;
-//mod util;
+mod thir;
+mod util;
 
 fn main() {
     run::run_rust_verifier();

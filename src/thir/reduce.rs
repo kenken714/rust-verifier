@@ -7,7 +7,7 @@ use std::rc::Rc;
 use crate::thir::rthir::*;
 
 pub fn reduce_thir(thir: Thir) -> RThir {
-    let mut reducer = ThirReducer::new(thir);
+    let mut reducer = Reducer::new(thir);
     reducer.reduce();
     reducer.reduced_thir
 }
@@ -194,6 +194,7 @@ impl<'tcx> Reducer<'tcx> {
                 expr: self.reduce_expr(expr),
                 pat: self.reduce_pattern(pat),
             },
+            /*
             Match {
                 scrutinee, arms, ..
             } => RExprKind::Match {
@@ -206,6 +207,7 @@ impl<'tcx> Reducer<'tcx> {
                     })
                     .collect(),
             },
+            */
             Block { block } => self.handle_block(block),
             Assign { lhs, rhs } => RExprKind::Assign {
                 lhs: self.reduce_expr(lhs),
@@ -310,22 +312,6 @@ impl<'tcx> Reducer<'tcx> {
         self.reduce_expr_kind(&never_to_any.kind)
     }
 
-    fn handle_arm(&self, arm_id: &ArmId) -> (RExprKind<'tcx>, Span) {
-        let arm = &self.thir.arms[*arm_id];
-        (
-            RExprKind::Arm {
-                pattern: self.reduce_pattern(&arm.pattern),
-                guard: if let Some(expr_id) = arm.guard {
-                    Some(self.reduce_expr(&expr_id))
-                } else {
-                    None
-                },
-                body: self.reduce_expr(&arm.body),
-            },
-            arm.span,
-        )
-    }
-
     fn handle_block(&self, block_id: &BlockId) -> RExprKind<'tcx> {
         let block = &self.thir.blocks[*block_id];
 
@@ -357,12 +343,12 @@ impl<'tcx> Reducer<'tcx> {
             } => Rc::new(RExpr::new(
                 RExprKind::LetStmt {
                     pattern: self.reduce_pattern(pattern),
-                    initializer: if let Some(expr_id) = initializer {
+                    init: if let Some(expr_id) = initializer {
                         Some(self.reduce_expr(&expr_id))
                     } else {
                         None
                     },
-                    else_block: if let Some(block_id) = else_block {
+                    body: if let Some(block_id) = else_block {
                         Some(Rc::new(RExpr::new(self.handle_block(&block_id), *span)))
                     } else {
                         None

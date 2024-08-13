@@ -3,11 +3,13 @@ use rustc_span::Span;
 
 use std::rc::Rc;
 
+use crate::analyze::*;
+
 pub enum LirKind<'tcx> {
     Declaration { name: String, ty: Ty<'tcx> },
     Assume(String),
     Assert(String),
-    Assumptions(String),
+    Assumption(String),
 }
 pub struct Lir<'tcx> {
     pub kind: LirKind<'tcx>,
@@ -45,11 +47,12 @@ impl<'tcx> Lir<'tcx> {
         match &self.kind {
             Declaration { name, ty } => match ty.kind() {
                 TyKind::Bool => Ok(format!("(declare-const {} Bool\n", name)),
-                TyKind::Int => Ok(format!("(declare-const {} Int\n", name)),
+                TyKind::Int(_) => Ok(format!("(declare-const {} Int\n", name)),
+                _ => Err(()),
             },
-            Assert(constraint) => Ok(format!("(assert (not {}))", name)),
-            Assume(constraint) => Ok(format!("(assert ({}))", name)),
-            _ => Err(),
+            Assert(constraint) => Ok(format!("(assert (not {}))", constraint)),
+            Assume(constraint) => Ok(format!("(assert ({}))", constraint)),
+            _ => Err(()),
         }
     }
 }
