@@ -44,6 +44,9 @@ pub fn drive_rust_verifier(tcx: TyCtxt, opts: &Options) -> Result<()> {
                 OutOfBounds(idx) => {
                     println!("Out of bounds: {}", idx);
                 }
+                RandFunctions => {
+                    println!("Rand functions");
+                }
             }
         }
     } else {

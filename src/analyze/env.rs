@@ -1,5 +1,5 @@
 use rustc_middle::thir::LocalVarId;
-use rustc_middle::ty::Ty;
+use rustc_middle::ty::{self, Ty};
 use rustc_span::Span;
 use std::rc::Rc;
 
@@ -7,39 +7,47 @@ use std::collections::{HashMap, VecDeque};
 
 use crate::analyze::core::AnalysisError;
 use crate::analyze::lir::Lir;
+use crate::analyze::Analyzer;
 use crate::analyze::LirKind;
-
-use super::RExpr;
+use crate::analyze::RExpr;
 
 pub struct Env<'tcx> {
     pub name: String,
-    pub path: VecDeque<Lir<'tcx>>,
-    pub env_map: HashMap<LocalVarId, Ty<'tcx>>,
+    pub path: Vec<Lir<'tcx>>,
+    pub vars: Vec<(Ty<'tcx>, String)>,
+    pub env_map: HashMap<LocalVarId, Lir<'tcx>>,
 }
 
 impl<'tcx> Env<'tcx> {
     pub fn new() -> Self {
         Self {
             name: String::from("main"),
-            path: VecDeque::new(),
+            path: Vec::new(),
             env_map: HashMap::new(),
+            vars: Vec::new(),
         }
     }
 
     pub fn from(
         name: String,
-        path: VecDeque<Lir<'tcx>>,
-        env_map: HashMap<LocalVarId, Ty<'tcx>>,
+        path: Vec<Lir<'tcx>>,
+        env_map: HashMap<LocalVarId, Lir<'tcx>>,
+        vars: Vec<(Ty<'tcx>, String)>,
     ) -> Self {
         Self {
             name,
             path,
             env_map,
+            vars,
         }
     }
 
+    pub fn len(&self) -> usize {
+        self.path.len()
+    }
+
     pub fn add_smt_command(&mut self, constraint: String, expr: Rc<RExpr<'tcx>>) {
-        self.path.push_back(Lir::new_assert(constraint, expr));
+        self.path.push(Lir::new_assert(constraint, expr, None));
     }
 
     pub fn get_smt_commands(&self) -> Result<String, AnalysisError> {
@@ -69,5 +77,46 @@ impl<'tcx> Env<'tcx> {
         }
         command.push_str(&self.path[len - 1].to_assert()?);
         Ok(command)
+    }
+
+    pub fn add_random_var(&mut self, ty: Ty<'tcx>, name: String) {
+        self.vars.push((ty, name));
+    }
+
+    pub fn add_param(
+        &mut self,
+        name: String,
+        ty: Ty<'tcx>,
+        var_id: LocalVarId,
+        pat: Rc<RExpr<'tcx>>,
+    ) {
+        //TODO: fix
+        self.env_map.insert(
+            var_id,
+            Lir::new_param(name.clone(), ty.clone(), pat, Some(String::new())),
+        );
+    }
+
+    pub fn assign_value(&mut self, var_id: LocalVarId, constraint: String, expr: Rc<RExpr<'tcx>>) {
+        let var = self
+            .env_map
+            .get_mut(&var_id)
+            .expect("assign failed; target variable not found");
+        var.assume = Some(constraint);
+    }
+
+    pub fn new_env_from_str(&self, name: String, span: Span) -> Result<Env<'tcx>, AnalysisError> {
+        let name = self.get_unique_name(name, span);
+        Ok(Env::from(
+            name,
+            self.path.clone(),
+            self.env_map.clone(),
+            self.vars.clone(),
+        ))
+    }
+
+    pub fn get_unique_name(&self, name: String, span: Span) -> String {
+        let span_str = Analyzer::get_name_from_span(span);
+        format!("{}_{}", name, span_str)
     }
 }

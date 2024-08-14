@@ -30,6 +30,7 @@ impl<'tcx> Analyzer<'tcx> {
         println!("SMT: \n {}", smt_str);
         println!("Output: \n {}", output_str);
         if output_str.contains("unsat") {
+            println!("Verification succeeded :)");
             Ok(())
         } else {
             Err(AnalysisError::VerificationFailed)
@@ -62,5 +63,25 @@ impl<'tcx> Analyzer<'tcx> {
             .filter(|s| !s.is_empty())
             .map(|s| s.to_string())
             .collect()
+    }
+
+    pub fn get_name_from_span(span: Span) -> String {
+        let mut span_str = format!("{:?}", span);
+        span_str = span_str.replace(|c: char| !c.is_alphanumeric(), "_");
+        span_str
+    }
+
+    pub fn expr_to_var_id(expr: Rc<RExpr<'tcx>>) -> LocalVarId {
+        match &expr.kind {
+            RExprKind::VarRef { id } => id.clone(),
+            RExprKind::Deref { arg } => {
+                if let RExprKind::VarRef { id } = arg.kind {
+                    id
+                } else {
+                    panic!("Deref target is not a variable")
+                }
+            }
+            _ => unreachable!(),
+        }
     }
 }

@@ -3,5 +3,5 @@ RUST_LIB_PATH=$(rustc --print target-libdir)
 VMODULES="./verify_modules/target/release/libverify_modules.rlib"
 
 for file in samples/*.rs; do
-    cargo run "$file" -L "$RUST_LIB_PATH" --extern verify_modules="$VMODULES"
+    cargo run "$file" -L "$RUST_LIB_PATH" --extern verify_modules="$VMODULES" 
 done

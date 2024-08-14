@@ -34,6 +34,7 @@ impl Callbacks for MyCallbacks {
 
 pub fn run_rust_verifier() {
     println!("Running rust-analyzer");
+    println!("file: {}", std::env::args().nth(1).unwrap());
     let mut args = Vec::new();
     let mut args_iter = std::env::args();
     let mut opts = Options::default();

@@ -348,7 +348,7 @@ impl<'tcx> Reducer<'tcx> {
                     } else {
                         None
                     },
-                    body: if let Some(block_id) = else_block {
+                    else_block: if let Some(block_id) = else_block {
                         Some(Rc::new(RExpr::new(self.handle_block(&block_id), *span)))
                     } else {
                         None

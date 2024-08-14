@@ -1,3 +1,4 @@
+use rustc_ast::format;
 use rustc_span::Span;
 
 use crate::analyze::*;
@@ -56,9 +57,29 @@ impl<'tcx> Analyzer<'tcx> {
             Call { ty, args, .. } => {
                 res = self.analyze_fn(ty, args, expr, env)?;
             }
+            Block { .. } => {
+                self.analyze_body(expr, env)?;
+            }
+            LetStmt {
+                pattern,
+                init,
+                else_block,
+            } => {
+                self.analyze_let_stmt(pattern, init, else_block, env)?;
+            }
+            Assign { lhs, rhs } => {
+                self.analyze_assign(lhs, rhs, env)?;
+            }
+            If {
+                cond,
+                then,
+                else_opt,
+            } => {
+                self.analyze_if(cond, then, else_opt, env)?;
+            }
             _ => {
                 return Err(AnalysisError::Unsupported(
-                    "Unsupported expression".to_string(),
+                    format!("Unsupported expression {:?}", expr.kind).to_string(),
                 ))
             }
         }
@@ -80,4 +101,5 @@ pub enum AnalysisError {
     FunctionNotFound(LocalDefId),
     VerificationFailed, // { span: Span },
     OutOfBounds(usize),
+    RandFunctions,
 }

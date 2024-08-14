@@ -236,6 +236,6 @@ pub enum RExprKind<'tcx> {
     LetStmt {
         pattern: Rc<RExpr<'tcx>>,
         init: Option<Rc<RExpr<'tcx>>>,
-        body: Option<Rc<RExpr<'tcx>>>,
+        else_block: Option<Rc<RExpr<'tcx>>>,
     },
 }
