@@ -1,6 +1,3 @@
-use rustc_ast::format;
-use rustc_span::Span;
-
 use crate::analyze::*;
 use crate::thir::rthir::RThir;
 
@@ -27,6 +24,7 @@ impl<'tcx> Analyzer<'tcx> {
                         self.analyze_expr(expr.clone(), env)?; //loop is currently not supported
                     }
                     AnalysisType::Break => break,
+                    AnalysisType::Return(_) => break,
                     AnalysisType::Other => (),
                 }
             }
@@ -40,7 +38,7 @@ impl<'tcx> Analyzer<'tcx> {
         ))
     }
 
-    fn analyze_expr(
+    pub fn analyze_expr(
         &self,
         expr: Rc<RExpr<'tcx>>,
         env: &mut Env<'tcx>,
@@ -70,6 +68,12 @@ impl<'tcx> Analyzer<'tcx> {
             Assign { lhs, rhs } => {
                 self.analyze_assign(lhs, rhs, env)?;
             }
+            AssignOp { op, lhs, rhs } => {
+                self.analyze_assign_op(op, lhs, rhs, env)?;
+            }
+            Loop { body } => {
+                self.analyze_body(body, env)?;
+            }
             If {
                 cond,
                 then,
@@ -77,6 +81,14 @@ impl<'tcx> Analyzer<'tcx> {
             } => {
                 self.analyze_if(cond, then, else_opt, env)?;
             }
+            Return { value } => match value {
+                Some(value) => {
+                    let constraint = self.expr_to_const(value.clone(), env)?;
+                    env.add_smt_command(constraint.clone(), value.clone());
+                    res = AnalysisType::Return(Some(constraint));
+                }
+                None => res = AnalysisType::Return(None),
+            },
             _ => {
                 return Err(AnalysisError::Unsupported(
                     format!("Unsupported expression {:?}", expr.kind).to_string(),
@@ -92,6 +104,7 @@ pub enum AnalysisType<'tcx> {
     Invariant(Rc<RExpr<'tcx>>),
     Break,
     Other,
+    Return(Option<String>),
 }
 
 #[derive(Debug)]

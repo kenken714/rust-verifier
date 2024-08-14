@@ -1,9 +1,9 @@
 use rustc_middle::thir::LocalVarId;
-use rustc_middle::ty::{self, Ty};
+use rustc_middle::ty::Ty;
 use rustc_span::Span;
 use std::rc::Rc;
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 
 use crate::analyze::core::AnalysisError;
 use crate::analyze::lir::Lir;
@@ -118,5 +118,78 @@ impl<'tcx> Env<'tcx> {
     pub fn get_unique_name(&self, name: String, span: Span) -> String {
         let span_str = Analyzer::get_name_from_span(span);
         format!("{}_{}", name, span_str)
+    }
+
+    pub fn merge_env(&mut self, cond: &String, then_env: Env<'tcx>, else_env: Option<Env<'tcx>>) {
+        let mut new_env_map = HashMap::new();
+        let mut current_env_map = self.env_map.clone();
+        match else_env {
+            Some(env) => {
+                for (var_id, lir) in current_env_map.iter_mut() {
+                    let then_lir = then_env.env_map.get(var_id);
+                    let else_lir = env.env_map.get(var_id);
+                    if let (Some(then_lir), Some(else_lir)) = (then_lir, else_lir) {
+                        let then_constraint = then_lir.assume.clone().unwrap();
+                        let else_constraint = else_lir.assume.clone().unwrap();
+                        let constraint =
+                            format!("(ite {} {} {})", cond, then_constraint, else_constraint);
+                        new_env_map.insert(
+                            *var_id,
+                            Lir::new(lir.kind.clone(), lir.expr.clone(), Some(constraint)),
+                        );
+                    }
+                }
+            }
+            None => {
+                for (var_id, lir) in current_env_map.iter_mut() {
+                    let then_lir = then_env.env_map.get(var_id);
+                    if let Some(then_lir) = then_lir {
+                        let then_constraint = then_lir.assume.clone().unwrap();
+                        let constraint = format!(
+                            "(ite {} {} {})",
+                            cond,
+                            then_constraint,
+                            lir.assume.clone().unwrap()
+                        );
+                        new_env_map.insert(
+                            *var_id,
+                            Lir::new(lir.kind.clone(), lir.expr.clone(), Some(constraint)),
+                        );
+                    }
+                }
+            }
+        }
+        self.env_map = new_env_map;
+    }
+
+    pub fn adapt_cond(&mut self, cond: &String, path: &Vec<Lir<'tcx>>) {
+        /*
+        println!("adapt_cond: {}", cond);
+        for lir in path.iter() {
+            println!("lir: {:?}", lir.assume.as_ref().expect("assume not exist"));
+        }
+        for lir in self.path.iter() {
+            println!("lir: {:?}", lir.assume.as_ref().expect("assume not exist"));
+        }*/
+        for i in path.len()..self.len() {
+            self.path[i] = Lir::new_assume(
+                cond.clone(),
+                self.path[i].expr.clone(),
+                self.path[i].assume.clone(),
+            );
+        }
+    }
+    pub fn merge_ite_env(
+        &mut self,
+        cond: &String,
+        mut then_env: Env<'tcx>,
+        mut else_env: Option<Env<'tcx>>,
+    ) -> Result<(), AnalysisError> {
+        then_env.adapt_cond(&cond, &self.path);
+        if let Some(env) = else_env.as_mut() {
+            env.adapt_cond(&format!("(not {})", cond), &self.path);
+        }
+        self.merge_env(&cond, then_env, else_env);
+        Ok(())
     }
 }

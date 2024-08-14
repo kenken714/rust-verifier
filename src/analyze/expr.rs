@@ -167,6 +167,47 @@ impl<'tcx> Analyzer<'tcx> {
         Ok(())
     }
 
+    pub fn analyze_assign_op(
+        &self,
+        op: BinOp,
+        lhs: Rc<RExpr<'tcx>>,
+        rhs: Rc<RExpr<'tcx>>,
+        env: &mut Env<'tcx>,
+    ) -> Result<(), AnalysisError> {
+        let lhs_str = self.expr_to_const(lhs.clone(), env)?;
+        let rhs_str = self.expr_to_const(rhs.clone(), env)?;
+        let bin_op_str = self.bin_op_to_smt(op)?;
+        let constraint = format!("({} {} {})", bin_op_str, lhs_str, rhs_str);
+        let var = env
+            .env_map
+            .get_mut(&Analyzer::expr_to_var_id(lhs))
+            .expect("assign target variant not found");
+        var.assume = Some(constraint);
+        Ok(())
+    }
+
+    pub fn bin_op_to_smt(&self, op: BinOp) -> Result<String, AnalysisError> {
+        use BinOp::*;
+        let bin_op_str = match op {
+            Add => "+",
+            Sub => "-",
+            Mul => "*",
+            Div => "div",
+            Rem => "mod",
+            Eq => "=",
+            Lt => "<",
+            Le => "<=",
+            Gt => ">",
+            Ge => ">=",
+            Ne => "distinct",
+            _ => {
+                return Err(AnalysisError::Unsupported(
+                    "Unsupported operator".to_string(),
+                ))
+            }
+        };
+        Ok(bin_op_str.to_string())
+    }
     pub fn logical_op_to_const(
         &self,
         op: LogicalOp,
@@ -228,6 +269,8 @@ impl<'tcx> Analyzer<'tcx> {
         let else_str = self.expr_to_const(else_expr.clone(), env)?;
         else_env.add_smt_command(else_str.clone(), else_expr.clone());
 
+        env.merge_ite_env(&cond_str, then_env, Some(else_env))?;
+
         Ok(format!("(ite {} {} {})", cond_str, then_str, else_str))
     }
 
@@ -237,6 +280,8 @@ impl<'tcx> Analyzer<'tcx> {
         env: &mut Env<'tcx>,
     ) -> Result<String, AnalysisError> {
         use RExprKind::*;
+
+        println!("expr_to_const: {:?}", expr.kind);
         match &expr.kind {
             Literal { lit, neg } => Ok(self.literal_to_const(lit, *neg)?),
             Binary { op, lhs, rhs } => {
@@ -277,8 +322,13 @@ impl<'tcx> Analyzer<'tcx> {
     ) -> Result<String, AnalysisError> {
         let mut res = String::new();
         if let RExprKind::Block { stmts, expr } = &block.kind {
+            for stmt in stmts {
+                if let AnalysisType::Return(value) = self.analyze_expr(stmt.clone(), env)? {
+                    return Ok(value.expect("returned but no value"));
+                }
+            }
             if let Some(expr) = expr {
-                res = self.expr_to_const(expr.clone(), env)?
+                res = self.expr_to_const(expr.clone(), env)?;
             }
         } else {
             return Err(AnalysisError::Unsupported(
@@ -309,22 +359,45 @@ impl<'tcx> Analyzer<'tcx> {
         else_opt: Option<Rc<RExpr<'tcx>>>,
         env: &mut Env<'tcx>,
     ) -> Result<AnalysisType<'tcx>, AnalysisError> {
-        let cond_env = env.new_env_from_str("cond".to_string(), cond.span);
+        let mut cond_env = env.new_env_from_str("cond".to_string(), cond.span)?;
         let cond_str = self.expr_to_const(cond.clone(), env)?;
-        env.add_smt_command(cond_str.clone(), cond.clone());
+        cond_env.add_smt_command(cond_str.clone(), cond.clone());
 
-        let then_env = env.new_env_from_str("then".to_string(), then.span);
-        let then_str = self.expr_to_const(then.clone(), env)?;
-        env.add_smt_command(then_str.clone(), then.clone());
+        let mut then_env = env.new_env_from_str("then".to_string(), then.span)?;
+        let then_str = self.expr_to_const(then.clone(), &mut then_env)?;
+        then_env.add_smt_command(then_str.clone(), then.clone());
 
-        let else_opt = if let Some(else_expr) = else_opt {
-            self.expr_to_const(else_expr.clone(), env)?
-        } else {
-            String::new()
-        };
+        println!("cond_str: {}", cond_str);
+        println!("then_str: {}", then_str);
+
+        let mut else_env = None;
+        if let Some(else_expr) = else_opt {
+            let mut now_else_env = env.new_env_from_str("else".to_string(), else_expr.span)?;
+            now_else_env.add_smt_command(format!("(not {})", cond_str.clone()), cond.clone());
+            self.analyze_block(else_expr.clone(), &mut now_else_env)?;
+            else_env = Some(now_else_env);
+        }
+        env.merge_ite_env(&cond_str, then_env, else_env)?;
+
         Ok(AnalysisType::Other)
     }
 
+    pub fn analyze_block(
+        &self,
+        block: Rc<RExpr<'tcx>>,
+        env: &mut Env<'tcx>,
+    ) -> Result<(), AnalysisError> {
+        if let RExprKind::Block { stmts, .. } = &block.kind {
+            for stmt in stmts {
+                self.analyze_expr(stmt.clone(), env);
+            }
+        } else {
+            return Err(AnalysisError::Unsupported(
+                "Only block expressions are supported".to_string(),
+            ));
+        }
+        Ok(())
+    }
     pub fn analyze_fn(
         &self,
         ty: Ty<'tcx>,
@@ -393,10 +466,7 @@ impl<'tcx> Analyzer<'tcx> {
                 if let Some(fn_thir) = self.get_local_fn(def_id) {
                     self.local_fn_to_const(fn_thir, args, env)
                 } else {
-                    Err(AnalysisError::Unimplemented(
-                        ("Extern functions to const are not supported".to_string()),
-                    ))
-                    //self.annotate_fn_to_const(fn_info, args, env)
+                    self.annotate_fn_to_const(fn_info, args, env)
                 }
             }
             _ => return Err(AnalysisError::Unsupported("FnDef is not found".to_string())),
@@ -420,8 +490,6 @@ impl<'tcx> Analyzer<'tcx> {
         Ok(String::new())
     }
 
-    /*WIP
-
     pub fn annotate_fn_to_const(
         &self,
         fn_info: Vec<String>,
@@ -430,14 +498,13 @@ impl<'tcx> Analyzer<'tcx> {
     ) -> Result<String, AnalysisError> {
         if fn_info[0] == "verify_modules" {
             match fn_info[1].as_str() {
-                "Vassert" => self.analyze_assert(args, env),
-                "Vassume" => self.analyze_assume(args, env),
-                "Vinvariant" => self.analyze_invariant(args, env),
+                "Vrand_int" => Err(AnalysisError::RandFunctions),
+                "Vrand_bool" => Err(AnalysisError::RandFunctions),
+                "Vrand_float" => Err(AnalysisError::RandFunctions),
                 _ => unreachable!(),
             }
         } else {
             Err(AnalysisError::Unsupported("Unknown extern function".into()))
         }
     }
-    */
 }
