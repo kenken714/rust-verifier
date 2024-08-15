@@ -92,7 +92,7 @@ impl<'tcx> Analyzer<'tcx> {
             Div => "/",
             Rem => "%",
             Eq => "=",
-            Ne => "!=",
+            Ne => "distinct",
             Lt => "<",
             Le => "<=",
             Gt => ">",
