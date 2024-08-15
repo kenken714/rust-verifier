@@ -122,6 +122,7 @@ impl<'tcx> Analyzer<'tcx> {
                     if let Some(init) = init {
                         match self.expr_to_const(init.clone(), env) {
                             Ok(str) => {
+                                println!("init: {:?}, str: {:?}", init, str);
                                 env.assign_value(*var, str, init.clone());
                             }
                             Err(err) => match err {
@@ -186,6 +187,22 @@ impl<'tcx> Analyzer<'tcx> {
         Ok(())
     }
 
+    pub fn analyze_var_ref(
+        &self,
+        expr: Rc<RExpr<'tcx>>,
+        env: &mut Env<'tcx>,
+    ) -> Result<(), AnalysisError> {
+        let var = env
+            .env_map
+            .get(&Analyzer::expr_to_var_id(expr.clone()))
+            .expect("Variable not found")
+            .assume
+            .clone()
+            .unwrap_or_default();
+
+        Ok(())
+    }
+
     pub fn bin_op_to_smt(&self, op: BinOp) -> Result<String, AnalysisError> {
         use BinOp::*;
         let bin_op_str = match op {
@@ -241,6 +258,11 @@ impl<'tcx> Analyzer<'tcx> {
         id: LocalVarId,
         env: &mut Env<'tcx>,
     ) -> Result<String, AnalysisError> {
+        println!(
+            "var_assume: {:?}, {:?}",
+            env.env_map.get(&id).unwrap().assume,
+            id
+        );
         Ok(env
             .env_map
             .get(&id)
@@ -462,7 +484,7 @@ impl<'tcx> Analyzer<'tcx> {
     ) -> Result<String, AnalysisError> {
         match ty.kind() {
             TyKind::FnDef(def_id, ..) => {
-                let mut fn_info = self.get_fn_info(def_id);
+                let fn_info = self.get_fn_info(def_id);
                 if let Some(fn_thir) = self.get_local_fn(def_id) {
                     self.local_fn_to_const(fn_thir, args, env)
                 } else {
@@ -481,7 +503,7 @@ impl<'tcx> Analyzer<'tcx> {
     ) -> Result<String, AnalysisError> {
         self.analyze_params(&rthir.params, args, env)?;
         if let Some(body) = &rthir.body {
-            self.analyze_body((*body).clone(), env)?;
+            self.expr_to_const(body.clone(), env)?;
         } else {
             return Err(AnalysisError::Unsupported(
                 "No RThir body Found".to_string(),
