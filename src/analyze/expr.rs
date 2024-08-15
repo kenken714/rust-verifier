@@ -279,16 +279,18 @@ impl<'tcx> Analyzer<'tcx> {
         env: &mut Env<'tcx>,
     ) -> Result<String, AnalysisError> {
         let mut cond_env = env.new_env_from_str("cond".to_string(), cond.span)?;
-        let cond_str = self.expr_to_const(cond.clone(), env)?;
+        let cond_str = self.expr_to_const(cond.clone(), &mut cond_env)?;
         cond_env.add_smt_command(cond_str.clone(), cond.clone());
 
         let mut then_env = env.new_env_from_str("then".to_string(), then.span)?;
-        let then_str = self.expr_to_const(then.clone(), env)?;
+        then_env.add_smt_command(cond_str.clone(), cond.clone());
+        let then_str = self.expr_to_const(then.clone(), &mut then_env)?;
         then_env.add_smt_command(then_str.clone(), then.clone());
 
         let else_expr = else_opt.expect("No else expression in if statement");
         let mut else_env = env.new_env_from_str("else".to_string(), else_expr.span)?;
-        let else_str = self.expr_to_const(else_expr.clone(), env)?;
+        else_env.add_smt_command(format!("(not {})", cond_str.clone()), cond.clone());
+        let else_str = self.expr_to_const(else_expr.clone(), &mut else_env)?;
         else_env.add_smt_command(else_str.clone(), else_expr.clone());
 
         env.merge_ite_env(&cond_str, then_env, Some(else_env))?;
@@ -354,7 +356,7 @@ impl<'tcx> Analyzer<'tcx> {
             }
         } else {
             return Err(AnalysisError::Unsupported(
-                "Unknown block expression".to_string(),
+                format!("Unknown block expression type: {:?}", block.kind).to_string(),
             ));
         }
         Ok(res)
@@ -386,11 +388,8 @@ impl<'tcx> Analyzer<'tcx> {
         cond_env.add_smt_command(cond_str.clone(), cond.clone());
 
         let mut then_env = env.new_env_from_str("then".to_string(), then.span)?;
-        let then_str = self.expr_to_const(then.clone(), &mut then_env)?;
-        then_env.add_smt_command(then_str.clone(), then.clone());
-
-        //println!("cond_str: {}", cond_str);
-        //println!("then_str: {}", then_str);
+        then_env.add_smt_command(cond_str.clone(), cond.clone());
+        self.analyze_block(then.clone(), &mut then_env)?;
 
         let mut else_env = None;
         if let Some(else_expr) = else_opt {
@@ -503,7 +502,7 @@ impl<'tcx> Analyzer<'tcx> {
     ) -> Result<String, AnalysisError> {
         self.analyze_params(&rthir.params, args, env)?;
         if let Some(body) = &rthir.body {
-            self.expr_to_const(body.clone(), env)
+            self.block_to_const(body.clone(), env)
         } else {
             return Err(AnalysisError::Unsupported(
                 "No RThir body Found".to_string(),
