@@ -4,7 +4,7 @@ use rustc_ast::ast::LitKind;
 use rustc_hir::Lit;
 use rustc_middle::mir::{BinOp, UnOp};
 use rustc_middle::thir::*;
-use rustc_middle::ty::{Ty, TyKind};
+use rustc_middle::ty::{Mutability, Ty, TyKind};
 
 use crate::analyze::core::{AnalysisError, AnalysisType};
 use crate::analyze::Analyzer;
@@ -68,6 +68,13 @@ impl<'tcx> Analyzer<'tcx> {
                             let arg_str = self.expr_to_const(arg.clone(), env)?;
                             env.assign_value(*var, arg_str, arg.clone());
                         }
+                        RPatKind::Deref { subpattern } => {
+                            match self.analyze_expr(subpattern.clone(), env) {
+                                Ok(_) => (),
+                                Err(err) => return Err(err),
+                            }
+                        }
+                        Wild => (),
                         _ => {
                             return Err(AnalysisError::Unsupported(
                                 "Unsupported pattern in parameter".to_string(),
@@ -89,8 +96,8 @@ impl<'tcx> Analyzer<'tcx> {
             Add => "+",
             Sub => "-",
             Mul => "*",
-            Div => "/",
-            Rem => "%",
+            Div => "div",
+            Rem => "mod",
             Eq => "=",
             Ne => "distinct",
             Lt => "<",
@@ -115,27 +122,36 @@ impl<'tcx> Analyzer<'tcx> {
     ) -> Result<(), AnalysisError> {
         if let RExprKind::Pat { kind, .. } = &pattern.kind {
             match kind {
-                RPatKind::Binding { ty, var, .. } => {
-                    let name = Analyzer::get_name_from_span(pattern.span);
-                    env.add_param(name.clone(), ty.clone(), *var, pattern.clone());
-
-                    if let Some(init) = init {
-                        match self.expr_to_const(init.clone(), env) {
-                            Ok(str) => {
-                                println!("init: {:?}, str: {:?}", init, str);
-                                env.assign_value(*var, str, init.clone());
-                            }
-                            Err(err) => match err {
-                                AnalysisError::RandFunctions => {
-                                    let name = format! {"rand_{}", Analyzer::get_name_from_span(pattern.span)};
-                                    env.add_random_var(ty.clone(), name.clone());
-                                    env.assign_value(*var, name.clone(), pattern.clone());
+                RPatKind::Binding { ty, var, .. } => match ty.kind() {
+                    TyKind::Ref(_, ref_ty, mutability) => match mutability {
+                        Mutability::Mut => {
+                            self.analyze_mut_ref(&var, &ref_ty, pattern.clone(), init, env)?;
+                        }
+                        Mutability::Not => {
+                            self.analyze_ref(&var, &ref_ty, pattern.clone(), init, env)?;
+                        }
+                        _ => (),
+                    },
+                    _ => {
+                        let name = Analyzer::get_name_from_span(pattern.span);
+                        env.add_param(name.clone(), ty.clone(), *var, pattern.clone());
+                        if let Some(init) = init {
+                            match self.expr_to_const(init.clone(), env) {
+                                Ok(str) => {
+                                    env.assign_value(*var, str, init.clone());
                                 }
-                                _ => return Err(err),
-                            },
+                                Err(err) => match err {
+                                    AnalysisError::RandFunctions => {
+                                        let name = format! {"rand_{}", Analyzer::get_name_from_span(pattern.span)};
+                                        env.add_random_var(ty.clone(), name.clone());
+                                        env.assign_value(*var, name.clone(), pattern.clone());
+                                    }
+                                    _ => return Err(err),
+                                },
+                            }
                         }
                     }
-                }
+                },
                 _ => {
                     return Err(AnalysisError::Unsupported(
                         format!("Unsupported pattern in let statement {:?}", kind).to_string(),
@@ -153,6 +169,68 @@ impl<'tcx> Analyzer<'tcx> {
         Ok(())
     }
 
+    pub fn analyze_ref(
+        &self,
+        var: &LocalVarId,
+        ref_ty: &Ty<'tcx>,
+        pattern: Rc<RExpr<'tcx>>,
+        init: Option<Rc<RExpr<'tcx>>>,
+        env: &mut Env<'tcx>,
+    ) -> Result<(), AnalysisError> {
+        let name = Analyzer::get_name_from_span(pattern.span);
+        env.add_param(name.clone(), ref_ty.clone(), *var, pattern.clone());
+
+        if let Some(init) = init {
+            match self.expr_to_const(init.clone(), env) {
+                Ok(str) => {
+                    println!("init: {:?}, str: {:?}", init, str);
+                    env.assign_value(*var, str, init.clone());
+                }
+                Err(err) => match err {
+                    AnalysisError::RandFunctions => {
+                        let name = format! {"rand_{}", Analyzer::get_name_from_span(pattern.span)};
+                        env.add_random_var(ref_ty.clone(), name.clone());
+                        env.assign_value(*var, name.clone(), pattern.clone());
+                    }
+                    _ => return Err(err),
+                },
+            }
+        }
+        Ok(())
+    }
+    pub fn analyze_mut_ref(
+        &self,
+        var: &LocalVarId,
+        ref_ty: &Ty<'tcx>,
+        pattern: Rc<RExpr<'tcx>>,
+        init: Option<Rc<RExpr<'tcx>>>,
+        env: &mut Env<'tcx>,
+    ) -> Result<(), AnalysisError> {
+        let name = Analyzer::get_name_from_span(pattern.span);
+
+        if let Some(init) = init {
+            match &init.kind {
+                RExprKind::Borrow { arg } => {
+                    if let RExprKind::VarRef { id } = &arg.kind {
+                        let lir = env.env_map.get_mut(id).expect("Variable not found").clone();
+                        let temp = lir.clone();
+                        env.add_mut_ref(*var, temp);
+                    } else {
+                        return Err(AnalysisError::Unsupported(
+                            "Borrow target is not a variable".to_string(),
+                        ));
+                    }
+                }
+                _ => {
+                    return Err(AnalysisError::Unsupported(
+                        "Unsupported expression in mutable reference".to_string(),
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+
     pub fn analyze_assign(
         &self,
         lhs: Rc<RExpr<'tcx>>,
@@ -164,7 +242,7 @@ impl<'tcx> Analyzer<'tcx> {
             .env_map
             .get_mut(&Analyzer::expr_to_var_id(lhs))
             .expect("assign target variant not found");
-        var.assume = Some(rhs_str);
+        var.set_assume(Some(rhs_str));
         Ok(())
     }
 
@@ -183,23 +261,7 @@ impl<'tcx> Analyzer<'tcx> {
             .env_map
             .get_mut(&Analyzer::expr_to_var_id(lhs))
             .expect("assign target variant not found");
-        var.assume = Some(constraint);
-        Ok(())
-    }
-
-    pub fn analyze_var_ref(
-        &self,
-        expr: Rc<RExpr<'tcx>>,
-        env: &mut Env<'tcx>,
-    ) -> Result<(), AnalysisError> {
-        let var = env
-            .env_map
-            .get(&Analyzer::expr_to_var_id(expr.clone()))
-            .expect("Variable not found")
-            .assume
-            .clone()
-            .unwrap_or_default();
-
+        var.set_assume(Some(constraint));
         Ok(())
     }
 
@@ -260,16 +322,15 @@ impl<'tcx> Analyzer<'tcx> {
     ) -> Result<String, AnalysisError> {
         println!(
             "var_assume: {:?}, {:?}",
-            env.env_map.get(&id).unwrap().assume,
+            env.env_map.get(&id).unwrap().get_assume(),
             id
         );
         Ok(env
             .env_map
             .get(&id)
             .expect(format!("Variable not found: {:?}", id).as_str())
-            .assume
-            .clone()
-            .unwrap_or_default())
+            .get_assume()
+            .clone())
     }
     pub fn if_to_const(
         &self,
@@ -333,6 +394,8 @@ impl<'tcx> Analyzer<'tcx> {
             Call { ty, args, .. } => Ok(self
                 .fn_to_const(*ty, args.clone(), expr.clone(), env)?
                 .to_string()),
+            Borrow { arg } => self.expr_to_const(arg.clone(), env),
+            Deref { arg } => self.expr_to_const(arg.clone(), env),
             _ => Err(AnalysisError::Unsupported(
                 format!("Unsupported expression {:?}", expr.kind).to_string(),
             )),
@@ -467,6 +530,7 @@ impl<'tcx> Analyzer<'tcx> {
                 "Vassert" => self.analyze_assert(args, env),
                 "Vassume" => self.analyze_assume(args, env),
                 "Vinvariant" => self.analyze_invariant(args, env),
+                "Vdrop" => self.analyze_drop(args, env),
                 _ => unreachable!(),
             }
         } else {

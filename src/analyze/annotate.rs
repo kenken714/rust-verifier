@@ -32,4 +32,30 @@ impl<'tcx> Analyzer<'tcx> {
         env.add_smt_command(format!("(declare-const {} {})", name, ty), args[0].clone());
         Ok(AnalysisType::Other)
     }
+
+    pub fn analyze_drop(
+        &self,
+        args: Box<[Rc<RExpr<'tcx>>]>,
+        env: &mut Env<'tcx>,
+    ) -> Result<AnalysisType<'tcx>, AnalysisError> {
+        if let RExprKind::VarRef { id } = &args[0].kind {
+            let var = env
+                .env_map
+                .get(id)
+                .expect("Drop failed; target variable not found");
+            env.add_smt_command(
+                format!(
+                    "(= {} {})",
+                    var.get_assume(),
+                    var.get_assume_by_idx(vec![1])
+                ),
+                args[0].clone(),
+            );
+            Ok(AnalysisType::Other)
+        } else {
+            Err(AnalysisError::Unsupported(
+                "Drop target is not a variable".to_string(),
+            ))
+        }
+    }
 }

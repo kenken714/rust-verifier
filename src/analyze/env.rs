@@ -10,6 +10,7 @@ use std::collections::HashMap;
 use crate::analyze::core::AnalysisError;
 use crate::analyze::lir::Lir;
 use crate::analyze::Analyzer;
+use crate::analyze::LirDatKind;
 use crate::analyze::LirKind;
 use crate::analyze::RExpr;
 
@@ -81,7 +82,12 @@ impl<'tcx> Env<'tcx> {
     }
 
     pub fn add_smt_command(&mut self, constraint: String, expr: Rc<RExpr<'tcx>>) {
-        self.path.push(Lir::new_assume(constraint, expr, None));
+        self.path.push(Lir::new_assume(
+            constraint,
+            None,
+            expr,
+            Some("".to_string()),
+        ));
     }
 
     pub fn get_smt_commands(&self) -> Result<String, AnalysisError> {
@@ -129,6 +135,10 @@ impl<'tcx> Env<'tcx> {
         self.vars.push((ty, name));
     }
 
+    pub fn add_mut_ref(&mut self, var_id: LocalVarId, lir: Lir<'tcx>) {
+        self.env_map.insert(var_id, lir);
+    }
+
     pub fn add_param(
         &mut self,
         name: String,
@@ -147,7 +157,7 @@ impl<'tcx> Env<'tcx> {
             .env_map
             .get_mut(&var_id)
             .expect("assign failed; target variable not found");
-        var.assume = Some(constraint);
+        var.set_assume(Some(constraint));
     }
 
     pub fn new_env_from_str(&self, name: String, span: Span) -> Result<Env<'tcx>, AnalysisError> {
@@ -174,13 +184,18 @@ impl<'tcx> Env<'tcx> {
                     let then_lir = then_env.env_map.get(var_id);
                     let else_lir = env.env_map.get(var_id);
                     if let (Some(then_lir), Some(else_lir)) = (then_lir, else_lir) {
-                        let then_constraint = then_lir.assume.clone().unwrap();
-                        let else_constraint = else_lir.assume.clone().unwrap();
+                        let then_constraint = then_lir.get_assume();
+                        let else_constraint = else_lir.get_assume();
                         let constraint =
                             format!("(ite {} {} {})", cond, then_constraint, else_constraint);
                         new_env_map.insert(
                             *var_id,
-                            Lir::new(lir.kind.clone(), lir.expr.clone(), Some(constraint)),
+                            Lir::new(
+                                lir.kind.clone(),
+                                None,
+                                lir.expr.clone(),
+                                vec![Some(constraint)],
+                            ),
                         );
                     }
                 }
@@ -189,16 +204,17 @@ impl<'tcx> Env<'tcx> {
                 for (var_id, lir) in current_env_map.iter_mut() {
                     let then_lir = then_env.env_map.get(var_id);
                     if let Some(then_lir) = then_lir {
-                        let then_constraint = then_lir.assume.clone().unwrap();
-                        let constraint = format!(
-                            "(ite {} {} {})",
-                            cond,
-                            then_constraint,
-                            lir.assume.clone().unwrap()
-                        );
+                        let then_constraint = then_lir.get_assume();
+                        let constraint =
+                            format!("(ite {} {} {})", cond, then_constraint, lir.get_assume());
                         new_env_map.insert(
                             *var_id,
-                            Lir::new(lir.kind.clone(), lir.expr.clone(), Some(constraint)),
+                            Lir::new(
+                                lir.kind.clone(),
+                                None,
+                                lir.expr.clone(),
+                                vec![Some(constraint)],
+                            ),
                         );
                     }
                 }
@@ -208,19 +224,12 @@ impl<'tcx> Env<'tcx> {
     }
 
     pub fn adapt_cond(&mut self, cond: &String, path: &Vec<Lir<'tcx>>) {
-        /*
-        println!("adapt_cond: {}", cond);
-        for lir in path.iter() {
-            println!("lir: {:?}", lir.assume.as_ref().expect("assume not exist"));
-        }
-        for lir in self.path.iter() {
-            println!("lir: {:?}", lir.assume.as_ref().expect("assume not exist"));
-        }*/
         for i in path.len()..self.len() {
             self.path[i] = Lir::new_assume(
-                cond.clone(),
+                format!("(=> {} {})", cond, self.path[i].get_assume()),
+                None,
                 self.path[i].expr.clone(),
-                self.path[i].assume.clone(),
+                Some("".to_string()),
             );
         }
     }

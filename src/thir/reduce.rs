@@ -240,7 +240,6 @@ impl<'tcx> Reducer<'tcx> {
                 var_hir_id: *var_hir_id,
             },
             Borrow { borrow_kind, arg } => RExprKind::Borrow {
-                borrow_kind: *borrow_kind,
                 arg: self.reduce_expr(arg),
             },
             Break { label, value } => RExprKind::Break {

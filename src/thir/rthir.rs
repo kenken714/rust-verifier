@@ -178,7 +178,7 @@ pub enum RExprKind<'tcx> {
         var_hir_id: LocalVarId,
     },
     Borrow {
-        borrow_kind: BorrowKind,
+        //borrow_kind: BorrowKind,
         arg: Rc<RExpr<'tcx>>,
     },
     AddressOf {
