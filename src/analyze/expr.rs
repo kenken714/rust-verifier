@@ -411,7 +411,7 @@ impl<'tcx> Analyzer<'tcx> {
     ) -> Result<(), AnalysisError> {
         if let RExprKind::Block { stmts, .. } = &block.kind {
             for stmt in stmts {
-                self.analyze_expr(stmt.clone(), env);
+                self.analyze_expr(stmt.clone(), env)?;
             }
         } else {
             return Err(AnalysisError::Unsupported(
@@ -503,13 +503,12 @@ impl<'tcx> Analyzer<'tcx> {
     ) -> Result<String, AnalysisError> {
         self.analyze_params(&rthir.params, args, env)?;
         if let Some(body) = &rthir.body {
-            self.expr_to_const(body.clone(), env)?;
+            self.expr_to_const(body.clone(), env)
         } else {
             return Err(AnalysisError::Unsupported(
                 "No RThir body Found".to_string(),
             ));
         }
-        Ok(String::new())
     }
 
     pub fn annotate_fn_to_const(
