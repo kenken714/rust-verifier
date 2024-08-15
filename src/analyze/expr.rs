@@ -124,13 +124,13 @@ impl<'tcx> Analyzer<'tcx> {
                             Ok(str) => {
                                 env.assign_value(*var, str, init.clone());
                             }
-                            Err(e) => match e {
+                            Err(err) => match err {
                                 AnalysisError::RandFunctions => {
-                                    return Err(AnalysisError::Unimplemented(
-                                        "Random functions are currently not supported".to_string(),
-                                    ));
+                                    let name = format! {"rand_{}", Analyzer::get_name_from_span(pattern.span)};
+                                    env.add_random_var(ty.clone(), name.clone());
+                                    env.assign_value(*var, name.clone(), pattern.clone());
                                 }
-                                _ => return Err(e),
+                                _ => return Err(err),
                             },
                         }
                     }
@@ -367,8 +367,8 @@ impl<'tcx> Analyzer<'tcx> {
         let then_str = self.expr_to_const(then.clone(), &mut then_env)?;
         then_env.add_smt_command(then_str.clone(), then.clone());
 
-        println!("cond_str: {}", cond_str);
-        println!("then_str: {}", then_str);
+        //println!("cond_str: {}", cond_str);
+        //println!("then_str: {}", then_str);
 
         let mut else_env = None;
         if let Some(else_expr) = else_opt {

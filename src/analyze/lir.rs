@@ -55,38 +55,6 @@ impl<'tcx> Lir<'tcx> {
         Lir::new(LirKind::Assume(constraint), expr, assume)
     }
 
-    pub fn to_smt(&self) -> Result<String, AnalysisError> {
-        use LirKind::*;
-
-        match &self.kind {
-            Declaration { name, ty } => match ty.kind() {
-                TyKind::Bool => Ok(format!("(declare-const {} Bool\n", name)),
-                TyKind::Int(_) => Ok(format!("(declare-const {} Int\n", name)),
-                TyKind::Float(_) => Ok(format!("(declare-const {} Real\n", name)),
-                _ => Err(AnalysisError::Unsupported(
-                    "Unsupported type in declaration".to_string(),
-                )),
-            },
-
-            Assert(constraint) => Ok(format!("(assert (not {}))", constraint)),
-            Assume(constraint) => Ok(format!("(assert ({}))", constraint)),
-            _ => Err(AnalysisError::Unsupported(
-                "Unsupported annotation kind".to_string(),
-            )),
-        }
-    }
-
-    pub fn to_assert(&self) -> Result<String, AnalysisError> {
-        use LirKind::*;
-        match &self.kind {
-            Assert(constraint) => Ok(format!("(assert (not {}))", constraint)),
-            Assume(constraint) => Ok(format!("(assert (not {}))", constraint)),
-            _ => Err(AnalysisError::Unsupported(
-                "Unsupported annotation kind".to_string(),
-            )),
-        }
-    }
-
     pub fn set_assume(&mut self, constraint: Option<String>) {
         self.assume = constraint;
     }

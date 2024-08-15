@@ -1,6 +1,8 @@
 use rustc_middle::thir::LocalVarId;
-use rustc_middle::ty::Ty;
+use rustc_middle::ty::{Ty, TyKind};
 use rustc_span::Span;
+use std::io::Write;
+use std::process::{Child, Command, Stdio};
 use std::rc::Rc;
 
 use std::collections::HashMap;
@@ -42,41 +44,85 @@ impl<'tcx> Env<'tcx> {
         }
     }
 
+    pub fn verify_z3(&self, assert: String, span: Span) -> Result<(), AnalysisError> {
+        let mut command = Command::new("z3")
+            .arg("-in")
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .spawn()
+            .expect("Failed to spawn z3 process");
+        let mut smt_str = String::new();
+
+        smt_str.push_str(&self.get_smt_commands()?);
+        smt_str.push_str(format!("\n(assert (not {}))\n", assert).as_str());
+        smt_str.push_str("\n(check-sat)\n");
+
+        let stdin = command.stdin.as_mut().expect("Failed to open stdin");
+        stdin
+            .write_all(smt_str.as_bytes())
+            .expect("Failed to write to stdin");
+        drop(stdin);
+
+        let output = command.wait_with_output().expect("Failed to read stdout");
+        let output_str = String::from_utf8(output.stdout).expect("Failed to convert to string");
+
+        println!("SMT: \n {}", smt_str);
+        println!("Output: \n {}", output_str);
+        if output_str.contains("unsat") {
+            println!("Verification succeeded :)");
+            Ok(())
+        } else {
+            Err(AnalysisError::VerificationFailed)
+        }
+    }
+
     pub fn len(&self) -> usize {
         self.path.len()
     }
 
     pub fn add_smt_command(&mut self, constraint: String, expr: Rc<RExpr<'tcx>>) {
-        self.path.push(Lir::new_assert(constraint, expr, None));
+        self.path.push(Lir::new_assume(constraint, expr, None));
     }
 
     pub fn get_smt_commands(&self) -> Result<String, AnalysisError> {
+        let smt_var_str = self
+            .vars
+            .iter()
+            .map(|smt_var| self.var_to_smt(smt_var).unwrap())
+            .collect::<Vec<String>>();
         let smt_str = self
             .path
             .iter()
-            .map(|smt_command| smt_command.to_smt().unwrap())
+            .map(|smt_command| self.path_to_smt(smt_command).unwrap())
             .collect::<Vec<String>>();
-        Ok(smt_str.join("\n"))
+        Ok(format!(
+            "{}\n{}",
+            smt_var_str.join("\n"),
+            smt_str.join("\n")
+        ))
     }
 
-    pub fn get_smt_command(&self, idx: usize) -> Result<String, AnalysisError> {
-        self.path
-            .get(idx)
-            .ok_or(AnalysisError::OutOfBounds(idx))
-            .and_then(|smt_command| Ok(smt_command.to_smt()?))
-    }
-
-    //TODO: fix 仮で書いている
-    pub fn get_smt_command_for_assume(&self) -> Result<String, AnalysisError> {
-        let len = self.path.len();
-        let mut command = String::new();
-        for i in 0..(len - 1) {
-            if let LirKind::Assume(_) = self.path[i].kind {
-                command.push_str(&self.path[i].to_smt()?);
-            }
+    pub fn var_to_smt(&self, var: &(Ty<'tcx>, String)) -> Result<String, AnalysisError> {
+        let (ty, name) = var;
+        match ty.kind() {
+            TyKind::Bool => Ok(format!("(declare-const {} Bool)", name)),
+            TyKind::Int(_) => Ok(format!("(declare-const {} Int)", name)),
+            TyKind::Float(_) => Ok(format!("(declare-const {} Real)", name)),
+            _ => Err(AnalysisError::Unsupported(
+                "Unsupported variable type".to_string(),
+            )),
         }
-        command.push_str(&self.path[len - 1].to_assert()?);
-        Ok(command)
+    }
+    pub fn path_to_smt(&self, path: &Lir<'tcx>) -> Result<String, AnalysisError> {
+        use LirKind::*;
+
+        match &path.kind {
+            //Assert(constraint) => Ok(format!("(assert (not {}))", constraint)),
+            Assume(constraint) => Ok(format!("(assert {})", constraint)),
+            _ => Err(AnalysisError::Unsupported(
+                "Unsupported annotation kind".to_string(),
+            )),
+        }
     }
 
     pub fn add_random_var(&mut self, ty: Ty<'tcx>, name: String) {
@@ -90,7 +136,6 @@ impl<'tcx> Env<'tcx> {
         var_id: LocalVarId,
         pat: Rc<RExpr<'tcx>>,
     ) {
-        //TODO: fix
         self.env_map.insert(
             var_id,
             Lir::new_param(name.clone(), ty.clone(), pat, Some(String::new())),
